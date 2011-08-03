@@ -9,6 +9,8 @@ import java.util.Set;
 import java.util.Vector;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.yahoo.ycsb.Client;
 import com.yahoo.ycsb.DB;
 import com.yahoo.ycsb.DBException;
@@ -55,7 +57,8 @@ public class FlockDBClient extends DB {
     }
   }
 
-  private static final int FLOCK_PORT = 6915;
+  private static final String FLOCK_PORT = "flock.port";
+  private static final int DEFAULT_FLOCK_PORT = 7915;
   private static final String FLOCK_HOSTS = "flock.hosts";
   private static final String DEFAULT_FLOCK_HOST = "localhost";
   private static final String FLOCK_MAX_CONNECTIONS_PER_HOST = "flock.max_connections_per_host";
@@ -64,11 +67,14 @@ public class FlockDBClient extends DB {
   private static final int DEFAULT_FOLLOWS_PER_USER = 100;
   private static final String FLOCK_INITIAL_FOLLOWS_PER_USER = "flock.initial_follows_per_user";
   private static final int DEFAULT_INITIAL_FOLLOWS_PER_USER = 25;
+  private static final String FLOCK_EDGE_CHECKS_PER_READ = "flock.edge_checks_per_read";
+  private static final int DEFAULT_EDGE_CHECKS_PER_READ = 5;
 
   private FlockClient flockClient;
   private int numUsers;
   private int initialFollowsPerUser;
   private IntegerGenerator followChooser;
+  private int edgeChecksPerRead;
   private boolean initialized = false;
 
   @Override
@@ -78,21 +84,25 @@ public class FlockDBClient extends DB {
       return;
     }
     Properties props = getProperties();
+    int flockPort = Integer.parseInt(props.getProperty(FLOCK_PORT,
+        String.valueOf(DEFAULT_FLOCK_PORT)));
     String flockHosts = props.getProperty(FLOCK_HOSTS, DEFAULT_FLOCK_HOST);
     int maxConnectionsPerHost = Integer.valueOf(props.getProperty(FLOCK_MAX_CONNECTIONS_PER_HOST,
         String.valueOf(DEFAULT_MAX_CONNECTIONS_PER_HOST)));
     ImmutableList.Builder<InetSocketAddress> socketAddrs = ImmutableList.builder();
     for (String flappHost : flockHosts.split(",")) {
-      socketAddrs.add(InetSocketAddress.createUnresolved(flappHost, FLOCK_PORT));
+      socketAddrs.add(InetSocketAddress.createUnresolved(flappHost, flockPort));
     }
     flockClient = new FlockClientImpl(FlockClientImpl.DEFAULT_CONFIG, socketAddrs.build(),
         maxConnectionsPerHost);
-    numUsers = Integer.parseInt(props.getProperty(Client.RECORD_COUNT_PROPERTY));
+    numUsers = Integer.parseInt(props.getProperty(Client.RECORD_COUNT_PROPERTY, "1"));
     int targetFollowsPerUser = Integer.parseInt(props.getProperty(FLOCK_FOLLOWS_PER_USER,
         String.valueOf(DEFAULT_FOLLOWS_PER_USER)));
+    followChooser = new UniformIntegerGenerator(0, targetFollowsPerUser - 1);
     initialFollowsPerUser = Integer.parseInt(props.getProperty(FLOCK_INITIAL_FOLLOWS_PER_USER,
         String.valueOf(DEFAULT_INITIAL_FOLLOWS_PER_USER)));
-    followChooser = new UniformIntegerGenerator(0, targetFollowsPerUser - 1);
+    edgeChecksPerRead = Integer.valueOf(props.getProperty(FLOCK_EDGE_CHECKS_PER_READ,
+        String.valueOf(DEFAULT_EDGE_CHECKS_PER_READ)));
     initialized = true;
   }
 
@@ -100,7 +110,16 @@ public class FlockDBClient extends DB {
   public int read(String table, String key, Set<String> fields, HashMap<String, String> result) {
     long userId = getUserIdFromKey(key);
     try {
-      flockClient.getFollowings(userId);
+      Set<Long> toCheck = Sets.newHashSet();
+      for (int i = 0; i < edgeChecksPerRead; i++) {
+        toCheck.add(nextFollowId(userId));
+      }
+      Set<Long> followings = flockClient.getFollowingsFromSet(userId, toCheck);
+      int i = 0;
+      for (long following : followings) {
+        result.put("f" + i, String.valueOf(following));
+        i++;
+      }
       return FlockReturnCode.SUCCESS.getCode();
     } catch (ThriftException e) {
       e.printStackTrace();
@@ -111,7 +130,21 @@ public class FlockDBClient extends DB {
   @Override
   public int scan(String table, String startkey, int recordcount, Set<String> fields,
       Vector<HashMap<String, String>> result) {
-    return FlockReturnCode.UNSUPPORTED.getCode();
+    long userId = getUserIdFromKey(startkey);
+    try {
+      Set<Long> followings = flockClient.getFollowings(userId);
+      int i = 0;
+      HashMap<String, String> followingResults = Maps.newHashMap();
+      for (long following : followings) {
+        followingResults.put("f" + i, String.valueOf(following));
+        i++;
+      }
+      result.add(followingResults);
+      return FlockReturnCode.SUCCESS.getCode();
+    } catch (ThriftException e) {
+      e.printStackTrace();
+      return FlockReturnCode.FAILED.getCode();
+    }
   }
 
   @Override
