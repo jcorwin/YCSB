@@ -196,6 +196,6 @@ public class FlockDBClient extends DB {
 
   private long nextFollowId(long userId) {
     long followSlot = followChooser.nextInt();
-    return String.valueOf(userId * (followSlot + 2)).hashCode() % numUsers;
+    return Hashing.hash(userId * (followSlot + 2)) % numUsers;
   }
 }
