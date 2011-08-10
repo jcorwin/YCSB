@@ -71,7 +71,7 @@ public class FlockDBClient extends DB {
   private static final int DEFAULT_EDGE_CHECKS_PER_READ = 5;
 
   private FlockClient flockClient;
-  private int numUsers;
+  private long numUsers;
   private int initialFollowsPerUser;
   private IntegerGenerator followChooser;
   private int edgeChecksPerRead;
@@ -166,6 +166,7 @@ public class FlockDBClient extends DB {
     List<Pair<Long, Long>> edges = new ArrayList<Pair<Long, Long>>(initialFollowsPerUser);
     for (int i = 0; i < initialFollowsPerUser; i++) {
       long followerId = nextFollowId(userId);
+      System.out.println("inserting follower id: " + followerId);
       edges.add(Pair.of(userId, followerId));
     }
     try {
@@ -196,6 +197,6 @@ public class FlockDBClient extends DB {
 
   private long nextFollowId(long userId) {
     long followSlot = followChooser.nextInt();
-    return Hashing.hash(userId * (followSlot + 2)) % numUsers;
+    return Math.abs(Hashing.hash((userId + 2) * (followSlot + 2)) % numUsers);
   }
 }
