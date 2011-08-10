@@ -166,7 +166,6 @@ public class FlockDBClient extends DB {
     List<Pair<Long, Long>> edges = new ArrayList<Pair<Long, Long>>(initialFollowsPerUser);
     for (int i = 0; i < initialFollowsPerUser; i++) {
       long followerId = nextFollowId(userId);
-      System.out.println("inserting follower id: " + followerId);
       edges.add(Pair.of(userId, followerId));
     }
     try {
@@ -197,6 +196,6 @@ public class FlockDBClient extends DB {
 
   private long nextFollowId(long userId) {
     long followSlot = followChooser.nextInt();
-    return Math.abs(Hashing.hash((userId + 2) * (followSlot + 2)) % numUsers);
+    return Math.abs(Hashing.hash((userId + 2) * (followSlot + 2))) % numUsers;
   }
 }
